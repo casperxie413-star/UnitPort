@@ -78,13 +78,6 @@ python main.py
 - ✅ **代码生成器** - 自动生成Python代码
 - ✅ **节点系统框架** - 支持动作、逻辑、传感器节点
 
-### 待实现（需要从原celebrimbor.py提取）
-- ⏳ 完整的图形编辑器（GraphScene, GraphView）
-- ⏳ 模块拖拽系统（ModulePalette, ModuleCard）
-- ⏳ 节点连接和执行
-- ⏳ 完整的动作库
-- ⏳ 传感器数据可视化
-
 ## 扩展新机器人
 
 ### 1. 创建模型类
