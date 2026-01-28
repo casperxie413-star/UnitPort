@@ -26,10 +26,13 @@ def init_theme_manager(config_path: str):
     _ui_config_path = config_path
 
     # Reinitialize slots if they exist
-    global _color_slot, _font_slot
+    global _color_slot, _node_color_slot, _font_slot
     if _color_slot is not None:
         _color_slot._config_path = config_path
         _color_slot.reload()
+    if _node_color_slot is not None:
+        _node_color_slot._config_path = config_path
+        _node_color_slot.reload()
     if _font_slot is not None:
         _font_slot._config_path = config_path
         _font_slot.reload()
@@ -126,6 +129,69 @@ class ColorSlot:
         self._load_colors()
 
 
+class NodeColorSlot:
+    """
+    Node color slot manager (singleton)
+    Reads gradient colors from [NodeColors] section of ui.ini
+    """
+
+    _instance: Optional['NodeColorSlot'] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        self._config_path = _get_default_config_path()
+        self._colors = {}
+        self._loaded = False
+        self._initialized = True
+
+    def _ensure_loaded(self):
+        """Ensure config is loaded"""
+        if not self._loaded:
+            self._load_colors()
+
+    def _load_colors(self):
+        """Load node colors from config file"""
+        try:
+            config = configparser.ConfigParser()
+            config.read(self._config_path, encoding='utf-8')
+
+            self._colors.clear()
+            if 'NodeColors' in config:
+                self._colors = dict(config['NodeColors'])
+
+            self._loaded = True
+        except Exception:
+            self._colors = {}
+            self._loaded = True
+
+    def get_color(self, color_key: str, fallback: str = "#2d2d2d") -> str:
+        """Get node color value (string)"""
+        self._ensure_loaded()
+        return self._colors.get(color_key, fallback)
+
+    def get_pair(self, prefix: str, fallback_start: str = "#2d2d2d", fallback_end: str = "#2d2d2d") -> tuple:
+        """Get gradient pair for a node type prefix"""
+        start_key = f"{prefix}_start"
+        end_key = f"{prefix}_end"
+        return (
+            self.get_color(start_key, fallback_start),
+            self.get_color(end_key, fallback_end)
+        )
+
+    def reload(self):
+        """Reload config"""
+        self._loaded = False
+        self._load_colors()
+
+
 class FontSlot:
     """
     Font slot manager (singleton)
@@ -213,6 +279,7 @@ class FontSlot:
 # ============================================================================
 
 _color_slot: Optional[ColorSlot] = None
+_node_color_slot: Optional[NodeColorSlot] = None
 _font_slot: Optional[FontSlot] = None
 
 
@@ -222,6 +289,14 @@ def get_color_slot() -> ColorSlot:
     if _color_slot is None:
         _color_slot = ColorSlot()
     return _color_slot
+
+
+def get_node_color_slot() -> NodeColorSlot:
+    """Get NodeColorSlot singleton"""
+    global _node_color_slot
+    if _node_color_slot is None:
+        _node_color_slot = NodeColorSlot()
+    return _node_color_slot
 
 
 def get_font_slot() -> FontSlot:
@@ -235,6 +310,16 @@ def get_font_slot() -> FontSlot:
 def get_color(color_key: str, fallback: str = "#FFFFFF") -> str:
     """Get color value (string)"""
     return get_color_slot().get_color(color_key, fallback)
+
+
+def get_node_color(color_key: str, fallback: str = "#2d2d2d") -> str:
+    """Get node color value (string)"""
+    return get_node_color_slot().get_color(color_key, fallback)
+
+
+def get_node_color_pair(prefix: str, fallback_start: str = "#2d2d2d", fallback_end: str = "#2d2d2d") -> tuple:
+    """Get node gradient pair for a category"""
+    return get_node_color_slot().get_pair(prefix, fallback_start, fallback_end)
 
 
 def get_qcolor(color_key: str, fallback: str = "#FFFFFF") -> QColor:

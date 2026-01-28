@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from bin.core.logger import log_info, log_error, log_debug, log_warning, log_success
+from bin.core.theme_manager import get_color, get_node_color_pair
 
 
 class ConnectionItem(QGraphicsPathItem):
@@ -145,6 +146,29 @@ class ConnectionItem(QGraphicsPathItem):
         return super().itemChange(change, value)
 
 
+class PortInputRow(QWidget):
+    """Input row widget that keeps a port aligned to its geometry."""
+
+    def __init__(self, placeholder: str, style: str, trailing: Optional[QWidget] = None, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+        self.line_edit = QLineEdit()
+        self.line_edit.setPlaceholderText(placeholder)
+        self.line_edit.setStyleSheet(style)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(self.line_edit)
+        row.addStretch(1)
+        if trailing is not None:
+            row.addWidget(trailing)
+
+    def center_y(self, proxy: QGraphicsProxyWidget) -> float:
+        geo = self.geometry()
+        return proxy.pos().y() + geo.y() + geo.height() / 2
+
+
 class GraphScene(QGraphicsScene):
     """Graph Editor Scene"""
 
@@ -200,6 +224,27 @@ class GraphScene(QGraphicsScene):
         """Set robot type"""
         self._robot_type = robot_type
         log_info(f"Robot type set to: {robot_type}")
+
+    def _resolve_node_gradient(self, name: str, grad: Optional[tuple]) -> tuple:
+        """Resolve node gradient from ui.ini NodeColors"""
+        card_bg = get_color("card_bg", "#2d2d2d")
+        fallback_start = grad[0] if grad and len(grad) == 2 else card_bg
+        fallback_end = grad[1] if grad and len(grad) == 2 else card_bg
+
+        if "Logic Control" in name or "閫昏緫鎺у埗" in name:
+            return get_node_color_pair("logic", fallback_start, fallback_end)
+        if "Condition" in name or "鏉′欢鍒ゆ柇" in name:
+            return get_node_color_pair("condition", fallback_start, fallback_end)
+        if "Action Execution" in name:
+            return get_node_color_pair("action", fallback_start, fallback_end)
+        if "Sensor Input" in name:
+            return get_node_color_pair("sensor", fallback_start, fallback_end)
+        if "Compute" in name:
+            return get_node_color_pair("compute", fallback_start, fallback_end)
+
+        if grad and len(grad) == 2:
+            return tuple(grad)
+        return (card_bg, card_bg)
 
     def drawBackground(self, painter: QPainter, rect: QRectF):
         """Draw grid background"""
@@ -576,9 +621,9 @@ class GraphScene(QGraphicsScene):
         """
         # Adjust width based on node type
         if "Logic Control" in name or "逻辑控制" in name:
-            w, h = 220, 170
+            w, h = 240, 200
         elif "Condition" in name or "条件判断" in name:
-            w, h = 300, 140
+            w, h = 260, 170
         else:
             w, h = 180, 110
 
@@ -586,11 +631,12 @@ class GraphScene(QGraphicsScene):
         rect = QGraphicsRectItem(0, 0, w, h)
 
         # Gradient background
-        if grad and len(grad) == 2:
+        resolved_grad = self._resolve_node_gradient(name, grad)
+        if resolved_grad and len(resolved_grad) == 2:
             g = QLinearGradient(0, 0, 1, 1)
             g.setCoordinateMode(QGradient.ObjectBoundingMode)
-            g.setColorAt(0.0, QColor(grad[0]))
-            g.setColorAt(1.0, QColor(grad[1]))
+            g.setColorAt(0.0, QColor(resolved_grad[0]))
+            g.setColorAt(1.0, QColor(resolved_grad[1]))
             rect.setBrush(QBrush(g))
         else:
             rect.setBrush(QBrush(QColor(45, 50, 60)))
@@ -622,8 +668,8 @@ class GraphScene(QGraphicsScene):
         # Create port function
         port_r = 6
 
-        def _mk_port(x, y, io, slot):
-            p = QGraphicsEllipseItem(-port_r, -port_r, port_r * 2, port_r * 2, rect)
+        def _mk_port(x, y, io, slot, radius=port_r):
+            p = QGraphicsEllipseItem(-radius, -radius, radius * 2, radius * 2, rect)
             p.setPos(x, y)
             p.setBrush(QBrush(QColor("#1f2937")))
             p.setPen(QPen(QColor("#60a5fa"), 2))
@@ -703,8 +749,24 @@ class GraphScene(QGraphicsScene):
                 }
             """)
 
-            loop_label = QLabel("Loop:")
-            loop_label.setStyleSheet("QLabel { color: #cbd5e1; font-size: 11px; }")
+            tag_bg = get_color("hover_bg", "#3d3d3d")
+            tag_fg = get_color("text_primary", "#ffffff")
+
+            def _make_tag(text: str) -> QLabel:
+                lbl = QLabel(text)
+                lbl.setStyleSheet(
+                    f"QLabel {{ color: {tag_fg}; background: {tag_bg}; "
+                    "border-radius: 4px; padding: 2px 6px; font-size: 11px; }}"
+                )
+                return lbl
+
+            loop_label = _make_tag("Loop")
+            condition_label = _make_tag("Condition")
+            out_true_label = _make_tag("True")
+            out_false_label = _make_tag("False")
+            loop_body_label = _make_tag("Body")
+            loop_end_label = _make_tag("End")
+            for_end_label = _make_tag("End")
 
             for_start_input = QLineEdit()
             for_start_input.setPlaceholderText("start")
@@ -718,7 +780,7 @@ class GraphScene(QGraphicsScene):
                     font-size: 11px;
                 }
             """)
-            for_start_input.setMaximumWidth(52)
+            for_start_input.setMaximumWidth(int(w - 16))
 
             for_end_input = QLineEdit()
             for_end_input.setPlaceholderText("end")
@@ -732,7 +794,7 @@ class GraphScene(QGraphicsScene):
                     font-size: 11px;
                 }
             """)
-            for_end_input.setMaximumWidth(52)
+            for_end_input.setMaximumWidth(int(w - 16))
 
             for_step_input = QLineEdit()
             for_step_input.setPlaceholderText("step")
@@ -746,7 +808,7 @@ class GraphScene(QGraphicsScene):
                     font-size: 11px;
                 }
             """)
-            for_step_input.setMaximumWidth(52)
+            for_step_input.setMaximumWidth(int(w - 16))
 
             widget_container = QWidget()
             widget_container.setStyleSheet("background: transparent;")
@@ -759,55 +821,108 @@ class GraphScene(QGraphicsScene):
             cond_row.setContentsMargins(0, 0, 0, 0)
             cond_row.setSpacing(4)
             cond_row.addWidget(condition_input)
+            cond_row.addWidget(condition_label)
             cond_row.addWidget(add_elif_btn)
+            cond_row.addStretch(1)
+            cond_row.addWidget(out_true_label)
             vbox.addLayout(cond_row)
 
-            loop_row = QHBoxLayout()
+            else_row_widget = QWidget()
+            else_row_widget.setStyleSheet("background: transparent;")
+            else_row = QHBoxLayout(else_row_widget)
+            else_row.setContentsMargins(0, 0, 0, 0)
+            else_row.setSpacing(4)
+            else_label = _make_tag("Else")
+            else_row.addWidget(else_label)
+            else_row.addStretch(1)
+            else_row.addWidget(out_false_label)
+            vbox.addWidget(else_row_widget)
+
+            loop_row_widget = QWidget()
+            loop_row_widget.setStyleSheet("background: transparent;")
+            loop_row = QHBoxLayout(loop_row_widget)
             loop_row.setContentsMargins(0, 0, 0, 0)
             loop_row.setSpacing(4)
             loop_row.addWidget(loop_label)
             loop_row.addWidget(loop_type_combo)
             loop_row.addStretch(1)
-            vbox.addLayout(loop_row)
+            loop_row.addWidget(loop_body_label)
+            vbox.addWidget(loop_row_widget)
 
-            for_row = QHBoxLayout()
-            for_row.setContentsMargins(0, 0, 0, 0)
-            for_row.setSpacing(4)
-            for_row.addWidget(for_start_input)
-            for_row.addWidget(for_end_input)
-            for_row.addWidget(for_step_input)
-            for_row.addStretch(1)
-            vbox.addLayout(for_row)
+            loop_end_row_widget = QWidget()
+            loop_end_row_widget.setStyleSheet("background: transparent;")
+            loop_end_row = QHBoxLayout(loop_end_row_widget)
+            loop_end_row.setContentsMargins(0, 0, 0, 0)
+            loop_end_row.setSpacing(4)
+            loop_end_row.addStretch(1)
+            loop_end_row.addWidget(loop_end_label)
+            vbox.addWidget(loop_end_row_widget)
+
+            for_start_row_widget = QWidget()
+            for_start_row_widget.setStyleSheet("background: transparent;")
+            for_start_row = QHBoxLayout(for_start_row_widget)
+            for_start_row.setContentsMargins(0, 0, 0, 0)
+            for_start_row.setSpacing(4)
+            for_start_row.addWidget(for_start_input)
+            for_start_row.addStretch(1)
+            vbox.addWidget(for_start_row_widget)
+
+            for_end_row_widget = QWidget()
+            for_end_row_widget.setStyleSheet("background: transparent;")
+            for_end_row = QHBoxLayout(for_end_row_widget)
+            for_end_row.setContentsMargins(0, 0, 0, 0)
+            for_end_row.setSpacing(4)
+            for_end_row.addWidget(for_end_input)
+            for_end_row.addStretch(1)
+            vbox.addWidget(for_end_row_widget)
+
+            for_step_row_widget = QWidget()
+            for_step_row_widget.setStyleSheet("background: transparent;")
+            for_step_row = QHBoxLayout(for_step_row_widget)
+            for_step_row.setContentsMargins(0, 0, 0, 0)
+            for_step_row.setSpacing(4)
+            for_step_row.addWidget(for_step_input)
+            for_step_row.addStretch(1)
+            for_step_row.addWidget(for_end_label)
+            vbox.addWidget(for_step_row_widget)
 
             # Ports
-            condition_port = _mk_port(0, h * 0.50, "in", "condition")
-            for_start_port = _mk_port(0, h * 0.62, "in", "for_start")
-            for_end_port = _mk_port(0, h * 0.72, "in", "for_end")
-            for_step_port = _mk_port(0, h * 0.82, "in", "for_step")
+            data_port_x = 12
+            flow_in_port = _mk_port(0, h * 0.22, "in", "flow_in", radius=6)
+            condition_port = _mk_port(data_port_x, h * 0.50, "in", "condition", radius=4)
+            for_start_port = _mk_port(data_port_x, h * 0.62, "in", "for_start", radius=4)
+            for_end_port = _mk_port(data_port_x, h * 0.72, "in", "for_end", radius=4)
+            for_step_port = _mk_port(data_port_x, h * 0.82, "in", "for_step", radius=4)
 
-            out_true = _mk_port(w, h * 0.28, "out", "out_true")
-            out_false = _mk_port(w, h * 0.88, "out", "out_false")
-            loop_body = _mk_port(w, h * 0.28, "out", "loop_body")
-            loop_end = _mk_port(w, h * 0.88, "out", "loop_end")
+            out_true = _mk_port(w, h * 0.28, "out", "out_true", radius=6)
+            out_false = _mk_port(w, h * 0.88, "out", "out_false", radius=6)
+            loop_body = _mk_port(w, h * 0.28, "out", "loop_body", radius=6)
+            loop_end = _mk_port(w, h * 0.88, "out", "loop_end", radius=6)
 
             rect._elif_input_ports = []
             rect._elif_output_ports = []
             rect._elif_inputs = []
+            rect._elif_rows = []
+            rect._elif_remove_btns = []
 
-            def _layout_elif_ports():
-                total = len(rect._elif_output_ports)
-                if total == 0:
-                    return
-                start, end = 0.45, 0.72
-                for i, (pin, pout) in enumerate(zip(rect._elif_input_ports, rect._elif_output_ports)):
-                    y = h * (start + (end - start) * (i + 1) / (total + 1))
-                    pin.setPos(0, y)
-                    pout.setPos(w, y)
+            def _remove_port_connections(port):
+                conns = port.data(2) or []
+                for conn in list(conns):
+                    if conn and isValid(conn) and conn.scene() is not None:
+                        self.removeItem(conn)
+
+            def _reindex_elifs():
+                for i, inp in enumerate(rect._elif_inputs):
+                    inp.setPlaceholderText(f"elif {i}")
+                for i, port in enumerate(rect._elif_input_ports):
+                    port.setData(3, f"elif_{i}")
+                for i, port in enumerate(rect._elif_output_ports):
+                    port.setData(3, f"out_elif_{i}")
 
             def _add_elif():
                 idx = len(rect._elif_output_ports)
-                inp = _mk_port(0, h * 0.60, "in", f"elif_{idx}")
-                outp = _mk_port(w, h * 0.60, "out", f"out_elif_{idx}")
+                inp = _mk_port(data_port_x, h * 0.60, "in", f"elif_{idx}", radius=4)
+                outp = _mk_port(w, h * 0.60, "out", f"out_elif_{idx}", radius=6)
                 rect._elif_input_ports.append(inp)
                 rect._elif_output_ports.append(outp)
 
@@ -823,10 +938,61 @@ class GraphScene(QGraphicsScene):
                         font-size: 11px;
                     }
                 """)
+                remove_btn = QPushButton("X")
+                remove_btn.setFixedWidth(20)
+                remove_btn.setStyleSheet("""
+                    QPushButton {
+                        background: #111827;
+                        color: #e5e7eb;
+                        border: 1px solid #4b5563;
+                        border-radius: 4px;
+                        padding: 0px;
+                        font-size: 10px;
+                    }
+                    QPushButton:hover {
+                        background: #1f2937;
+                    }
+                """)
+
+                row_widget = QWidget()
+                row_widget.setStyleSheet("background: transparent;")
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.setSpacing(4)
+                row_layout.addWidget(elif_input)
+                row_layout.addWidget(remove_btn)
+                row_layout.addStretch(1)
+                row_layout.addWidget(_make_tag("Elif"))
+
                 rect._elif_inputs.append(elif_input)
+                rect._elif_rows.append(row_widget)
+                rect._elif_remove_btns.append(remove_btn)
+
+                def _remove_this():
+                    idx_local = rect._elif_rows.index(row_widget) if row_widget in rect._elif_rows else -1
+                    if idx_local < 0:
+                        return
+                    row_widget.setParent(None)
+                    row_widget.deleteLater()
+                    for port in (rect._elif_input_ports[idx_local], rect._elif_output_ports[idx_local]):
+                        _remove_port_connections(port)
+                        if port.scene() is not None:
+                            self.removeItem(port)
+                    rect._elif_inputs.pop(idx_local)
+                    rect._elif_rows.pop(idx_local)
+                    rect._elif_remove_btns.pop(idx_local)
+                    rect._elif_input_ports.pop(idx_local)
+                    rect._elif_output_ports.pop(idx_local)
+                    _reindex_elifs()
+                    QTimer.singleShot(0, _sync_layout)
+                    self.regenerate_code()
+
+                remove_btn.clicked.connect(_remove_this)
                 elif_input.textChanged.connect(lambda _t: self._update_node_params(rect))
-                vbox.insertWidget(vbox.count() - 2, elif_input)
-                _layout_elif_ports()
+
+                insert_index = vbox.indexOf(else_row_widget)
+                vbox.insertWidget(insert_index, row_widget)
+                QTimer.singleShot(0, _sync_layout)
                 self.regenerate_code()
 
             add_elif_btn.clicked.connect(_add_elif)
@@ -834,16 +1000,30 @@ class GraphScene(QGraphicsScene):
             def _set_if_mode(enabled: bool):
                 condition_input.setVisible(enabled)
                 add_elif_btn.setVisible(enabled)
-                for inp in rect._elif_inputs:
-                    inp.setVisible(enabled)
+                else_row_widget.setVisible(enabled)
+                condition_label.setVisible(not enabled)
+                out_true_label.setVisible(enabled)
+                out_false_label.setVisible(enabled)
+                # no loop condition label in IF mode
+                loop_body_label.setVisible(not enabled)
+                loop_end_label.setVisible(False)
+                for_end_label.setVisible(False)
+                for row in rect._elif_rows:
+                    row.setVisible(enabled)
                 for p in rect._elif_input_ports + rect._elif_output_ports:
                     p.setVisible(enabled)
                 out_true.setVisible(enabled)
                 out_false.setVisible(enabled)
                 condition_port.setVisible(enabled)
+                # no loop condition port in IF mode
 
                 loop_body.setVisible(not enabled)
                 loop_end.setVisible(not enabled)
+                loop_row_widget.setVisible(not enabled)
+                loop_end_row_widget.setVisible(False)
+                for_start_row_widget.setVisible(False)
+                for_end_row_widget.setVisible(False)
+                for_step_row_widget.setVisible(False)
 
             def _set_for_ports_visible(enabled: bool):
                 for_start_input.setVisible(enabled)
@@ -852,6 +1032,10 @@ class GraphScene(QGraphicsScene):
                 for_start_port.setVisible(enabled)
                 for_end_port.setVisible(enabled)
                 for_step_port.setVisible(enabled)
+                for_start_row_widget.setVisible(enabled)
+                for_end_row_widget.setVisible(enabled)
+                for_step_row_widget.setVisible(enabled)
+                for_end_label.setVisible(enabled)
 
             def _set_loop_mode():
                 _set_if_mode(False)
@@ -861,15 +1045,22 @@ class GraphScene(QGraphicsScene):
                 loop_end.setVisible(True)
                 is_for = loop_type_combo.currentText() == "For"
                 condition_port.setVisible(not is_for)
-                condition_input.setVisible(not is_for)
+                condition_input.setVisible(False)
+                condition_label.setVisible(not is_for)
                 _set_for_ports_visible(is_for)
+                loop_end_row_widget.setVisible(not is_for)
+                loop_end_label.setVisible(not is_for)
+                QTimer.singleShot(0, _sync_layout)
                 self.regenerate_code()
 
             def _set_if_only():
                 loop_label.setVisible(False)
                 loop_type_combo.setVisible(False)
                 _set_for_ports_visible(False)
+                loop_row_widget.setVisible(False)
+                loop_end_row_widget.setVisible(False)
                 _set_if_mode(True)
+                QTimer.singleShot(0, _sync_layout)
                 self.regenerate_code()
 
             def _on_mode_change():
@@ -886,7 +1077,76 @@ class GraphScene(QGraphicsScene):
             proxy.setPos(8, 38)
             proxy.setZValue(2)
 
+            def _port_y(widget):
+                if not widget:
+                    return None
+                if hasattr(widget, "center_y"):
+                    return widget.center_y(proxy)
+                geo = widget.geometry()
+                return proxy.pos().y() + geo.y() + geo.height() / 2
+
+            def _resize_to_fit(min_height: Optional[int] = None):
+                layout = widget_container.layout()
+                if layout:
+                    layout.activate()
+                widget_container.adjustSize()
+                size_hint = widget_container.sizeHint()
+                try:
+                    proxy.setMinimumSize(size_hint)
+                except Exception:
+                    pass
+                content_h = size_hint.height()
+                target_h = int(proxy.pos().y() + content_h + 10)
+                if min_height is not None:
+                    target_h = max(target_h, min_height)
+                rect_h = rect.rect().height()
+                if target_h != rect_h:
+                    rect.setRect(0, 0, rect.rect().width(), target_h)
+
+            def _sync_ports():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                flow_in_port.setPos(0, rect.rect().height() / 2)
+                y = _port_y(condition_input if condition_input.isVisible() else condition_label)
+                if y is not None:
+                    condition_port.setPos(data_port_x, y)
+                    out_true.setPos(w_now, y)
+                y = _port_y(else_row_widget)
+                if y is not None:
+                    out_false.setPos(w_now, y)
+                y = _port_y(for_start_input)
+                if y is not None:
+                    for_start_port.setPos(data_port_x, y)
+                y = _port_y(for_end_input)
+                if y is not None:
+                    for_end_port.setPos(data_port_x, y)
+                y = _port_y(for_step_input)
+                if y is not None:
+                    for_step_port.setPos(data_port_x, y)
+                y = _port_y(loop_type_combo)
+                if y is not None:
+                    loop_body.setPos(w_now, y)
+                y = _port_y(for_step_row_widget if for_step_row_widget.isVisible() else loop_end_row_widget if loop_end_row_widget.isVisible() else loop_row_widget if loop_row_widget.isVisible() else condition_input)
+                if y is not None:
+                    loop_end.setPos(w_now, y)
+
+                for idx, inp in enumerate(rect._elif_inputs):
+                    if idx >= len(rect._elif_input_ports):
+                        continue
+                    y = _port_y(inp)
+                    if y is not None:
+                        rect._elif_input_ports[idx].setPos(data_port_x, y)
+                        rect._elif_output_ports[idx].setPos(w_now, y)
+
+            def _sync_layout():
+                _resize_to_fit()
+                _sync_ports()
+
+            QTimer.singleShot(0, _sync_layout)
+
             rect._condition_input = condition_input
+            rect._condition_label = condition_label
             rect._loop_type_combo = loop_type_combo
             rect._for_start_input = for_start_input
             rect._for_end_input = for_end_input
@@ -917,9 +1177,7 @@ class GraphScene(QGraphicsScene):
                 }
             """)
 
-            input_box = QLineEdit()
-            input_box.setPlaceholderText("inputs")
-            input_box.setStyleSheet("""
+            input_style = """
                 QLineEdit {
                     background: #0f1115;
                     color: #e5e7eb;
@@ -928,46 +1186,96 @@ class GraphScene(QGraphicsScene):
                     padding: 2px 4px;
                     font-size: 11px;
                 }
-            """)
-            input_box.setMaximumWidth(100)
+            """
 
-            output_box = QLineEdit()
-            output_box.setPlaceholderText("outputs")
-            output_box.setStyleSheet("""
-                QLineEdit {
-                    background: #0f1115;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 11px;
-                }
-            """)
-            output_box.setMaximumWidth(100)
+            left_row = PortInputRow("left", input_style)
+            left_input = left_row.line_edit
+            left_input.setMaximumWidth(int(w - 16))
+
+            tag_bg = get_color("hover_bg", "#3d3d3d")
+            tag_fg = get_color("text_primary", "#ffffff")
+
+            def _make_tag(text: str) -> QLabel:
+                lbl = QLabel(text)
+                lbl.setStyleSheet(
+                    f"QLabel {{ color: {tag_fg}; background: {tag_bg}; "
+                    "border-radius: 4px; padding: 2px 6px; font-size: 11px; }}"
+                )
+                return lbl
+
+            out_label = _make_tag("Result")
 
             widget_container = QWidget()
             widget_container.setStyleSheet("background: transparent;")
-            hbox = QHBoxLayout(widget_container)
-            hbox.setContentsMargins(0, 0, 0, 0)
-            hbox.setSpacing(4)
-            hbox.addWidget(combo)
-            hbox.addWidget(input_box)
-            hbox.addWidget(output_box)
+            vbox = QVBoxLayout(widget_container)
+            vbox.setContentsMargins(0, 0, 0, 0)
+            vbox.setSpacing(4)
+            vbox.addWidget(combo)
+            vbox.addWidget(left_row)
+            right_row = PortInputRow("right", input_style, trailing=out_label)
+            right_input = right_row.line_edit
+            right_input.setMaximumWidth(int(w - 16))
+            vbox.addWidget(right_row)
 
             proxy = QGraphicsProxyWidget(rect)
             proxy.setWidget(widget_container)
             proxy.setPos(8, 38)
             proxy.setZValue(2)
 
-            _mk_port(0, h * 0.45, "in", "left")
-            _mk_port(0, h * 0.70, "in", "right")
-            _mk_port(w, h / 2, "out", "result")
+            data_port_x = 12
+            left_port = _mk_port(data_port_x, h * 0.45, "in", "left", radius=4)
+            right_port = _mk_port(data_port_x, h * 0.70, "in", "right", radius=4)
+            result_port = _mk_port(w - data_port_x, h / 2, "out", "result", radius=4)
 
-            rect._input_box = input_box
-            rect._output_box = output_box
+            def _port_y(widget):
+                if not widget:
+                    return None
+                geo = widget.geometry()
+                return proxy.pos().y() + geo.y() + geo.height() / 2
+
+            def _resize_to_fit(min_height: Optional[int] = None):
+                layout = widget_container.layout()
+                if layout:
+                    layout.activate()
+                widget_container.adjustSize()
+                size_hint = widget_container.sizeHint()
+                try:
+                    proxy.setMinimumSize(size_hint)
+                except Exception:
+                    pass
+                content_h = size_hint.height()
+                target_h = int(proxy.pos().y() + content_h + 10)
+                if min_height is not None:
+                    target_h = max(target_h, min_height)
+                rect_h = rect.rect().height()
+                if target_h != rect_h:
+                    rect.setRect(0, 0, rect.rect().width(), target_h)
+
+            def _sync_ports():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y = _port_y(left_row)
+                if y is not None:
+                    left_port.setPos(data_port_x, y)
+                y = _port_y(right_row)
+                if y is not None:
+                    right_port.setPos(data_port_x, y)
+                y = _port_y(right_row)
+                if y is not None:
+                    result_port.setPos(w_now - data_port_x, y)
+
+            def _sync_layout():
+                _resize_to_fit()
+                _sync_ports()
+
+            QTimer.singleShot(0, _sync_layout)
+
+            rect._left_input = left_input
+            rect._right_input = right_input
             rect._combo = combo
-            input_box.textChanged.connect(lambda _t: self._update_node_params(rect))
-            output_box.textChanged.connect(lambda _t: self._update_node_params(rect))
+            left_input.textChanged.connect(lambda _t: self._update_node_params(rect))
+            right_input.textChanged.connect(lambda _t: self._update_node_params(rect))
             combo.currentTextChanged.connect(lambda _t: self._update_node_params(rect))
 
         else:
@@ -995,8 +1303,8 @@ class GraphScene(QGraphicsScene):
                 }
             """)
 
-            _mk_port(0, h / 2, "in", "in")
-            _mk_port(w, h / 2, "out", "out")
+            _mk_port(0, h / 2, "in", "flow_in", radius=6)
+            _mk_port(w, h / 2, "out", "flow_out", radius=6)
 
             proxy = QGraphicsProxyWidget(rect)
             proxy.setWidget(combo)
@@ -1067,8 +1375,12 @@ class GraphScene(QGraphicsScene):
 
         if in_slot == "condition":
             inp = getattr(node_item, "_condition_input", None)
-            if inp:
+            if inp and inp.isVisible():
                 inp.setText(label)
+            else:
+                lbl = getattr(node_item, "_condition_label", None)
+                if lbl:
+                    lbl.setText(label)
         elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
             idx = int(in_slot.split("_")[1])
             elif_inputs = getattr(node_item, "_elif_inputs", [])
@@ -1079,19 +1391,27 @@ class GraphScene(QGraphicsScene):
             if field:
                 field.setText(label)
         elif in_slot in ("left", "right"):
-            input_box = getattr(node_item, "_input_box", None)
-            if input_box:
-                cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
-                cmp_inputs[in_slot] = label
-                node_item._cmp_inputs = cmp_inputs
-                left = cmp_inputs.get("left", "")
-                right = cmp_inputs.get("right", "")
-                parts = []
-                if left:
-                    parts.append(f"left={left}")
-                if right:
-                    parts.append(f"right={right}")
-                input_box.setText(", ".join(parts))
+            left_input = getattr(node_item, "_left_input", None)
+            right_input = getattr(node_item, "_right_input", None)
+            if left_input or right_input:
+                if in_slot == "left" and left_input:
+                    left_input.setText(label)
+                if in_slot == "right" and right_input:
+                    right_input.setText(label)
+            else:
+                input_box = getattr(node_item, "_input_box", None)
+                if input_box:
+                    cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
+                    cmp_inputs[in_slot] = label
+                    node_item._cmp_inputs = cmp_inputs
+                    left = cmp_inputs.get("left", "")
+                    right = cmp_inputs.get("right", "")
+                    parts = []
+                    if left:
+                        parts.append(f"left={left}")
+                    if right:
+                        parts.append(f"right={right}")
+                    input_box.setText(", ".join(parts))
 
         self._update_node_params(node_item)
 
@@ -1106,8 +1426,12 @@ class GraphScene(QGraphicsScene):
 
         if in_slot == "condition":
             inp = getattr(node_item, "_condition_input", None)
-            if inp:
+            if inp and inp.isVisible():
                 inp.setText("")
+            else:
+                lbl = getattr(node_item, "_condition_label", None)
+                if lbl:
+                    lbl.setText("Condition")
         elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
             idx = int(in_slot.split("_")[1])
             elif_inputs = getattr(node_item, "_elif_inputs", [])
@@ -1118,19 +1442,27 @@ class GraphScene(QGraphicsScene):
             if field:
                 field.setText("")
         elif in_slot in ("left", "right"):
-            input_box = getattr(node_item, "_input_box", None)
-            if input_box:
-                cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
-                cmp_inputs[in_slot] = ""
-                node_item._cmp_inputs = cmp_inputs
-                left = cmp_inputs.get("left", "")
-                right = cmp_inputs.get("right", "")
-                parts = []
-                if left:
-                    parts.append(f"left={left}")
-                if right:
-                    parts.append(f"right={right}")
-                input_box.setText(", ".join(parts))
+            left_input = getattr(node_item, "_left_input", None)
+            right_input = getattr(node_item, "_right_input", None)
+            if left_input or right_input:
+                if in_slot == "left" and left_input:
+                    left_input.setText("")
+                if in_slot == "right" and right_input:
+                    right_input.setText("")
+            else:
+                input_box = getattr(node_item, "_input_box", None)
+                if input_box:
+                    cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
+                    cmp_inputs[in_slot] = ""
+                    node_item._cmp_inputs = cmp_inputs
+                    left = cmp_inputs.get("left", "")
+                    right = cmp_inputs.get("right", "")
+                    parts = []
+                    if left:
+                        parts.append(f"left={left}")
+                    if right:
+                        parts.append(f"right={right}")
+                    input_box.setText(", ".join(parts))
 
         self._update_node_params(node_item)
 
@@ -1167,7 +1499,18 @@ class GraphScene(QGraphicsScene):
         if hasattr(node_item, "_combo"):
             params["ui_selection"] = node_item._combo.currentText()
 
-        if hasattr(node_item, "_input_box"):
+        if hasattr(node_item, "_left_input") or hasattr(node_item, "_right_input"):
+            left_input = getattr(node_item, "_left_input", None)
+            right_input = getattr(node_item, "_right_input", None)
+            left = left_input.text() if left_input else ""
+            right = right_input.text() if right_input else ""
+            parts = []
+            if left:
+                parts.append(f"left={left}")
+            if right:
+                parts.append(f"right={right}")
+            params["input_expr"] = ", ".join(parts)
+        elif hasattr(node_item, "_input_box"):
             params["input_expr"] = node_item._input_box.text()
         if hasattr(node_item, "_output_box"):
             params["output_name"] = node_item._output_box.text()
@@ -1240,12 +1583,16 @@ class GraphScene(QGraphicsScene):
                         item = it
                         break
                 if item is not None:
+                    left_input = getattr(item, "_left_input", None)
+                    right_input = getattr(item, "_right_input", None)
                     inp = getattr(item, "_input_box", None)
-                    outp = getattr(item, "_output_box", None)
-                    if inp:
+                    if left_input or right_input:
+                        left_val = left_input.text() if left_input else ""
+                        right_val = right_input.text() if right_input else ""
+                        code_lines.append(f"    # left: {left_val}")
+                        code_lines.append(f"    # right: {right_val}")
+                    elif inp:
                         code_lines.append(f"    # inputs: {inp.text()}")
-                    if outp:
-                        code_lines.append(f"    # outputs: {outp.text()}")
 
             code_lines.append("")
 
